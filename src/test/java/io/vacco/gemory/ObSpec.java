@@ -44,7 +44,7 @@ public class ObSpec {
   static {
     it("Logs a counter's increase/decrease actions", () -> {
       ObStore<Integer> counterStore = new ObStore<>(
-          (action, currentState) -> new ObMatch<Integer, CounterAction>()
+          (action, currentState) -> new ObMatch<Integer>()
               .on(Increase.class, inc -> currentState + 1)
               .on(Decrease.class, dec -> currentState - 1)
               .orElse(() -> currentState)
@@ -82,7 +82,7 @@ public class ObSpec {
           ObSelector.combineSelectors(
               new ObSelector<>(
                   sandwich -> sandwich.breadType,
-                  (action, bread) -> new ObMatch<Bread, SelectBread>()
+                  (action, bread) -> new ObMatch<Bread>()
                       .on(SelectBread.class, sb -> sb.payload)
                       .orElse(() -> bread)
                       .apply(action),
@@ -93,7 +93,7 @@ public class ObSpec {
               ),
               new ObSelector<>(
                   sandwich -> sandwich.ingredients,
-                  (action, ingredients) -> new ObMatch<List<Ingredient>, AddIngredient>()
+                  (action, ingredients) -> new ObMatch<List<Ingredient>>()
                       .on(AddIngredient.class, add -> {
                         ingredients.add(add.payload);
                         return ingredients;
