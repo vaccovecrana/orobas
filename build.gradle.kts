@@ -1,7 +1,7 @@
 plugins { id("io.vacco.oss.gitflow") version "0.9.7" }
 
 group = "io.vacco.orobas"
-version = "0.2.0"
+version = "0.2.1"
 
 configure<io.vacco.oss.gitflow.GsPluginProfileExtension> {
   addJ8Spec()

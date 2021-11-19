@@ -5,8 +5,8 @@ import java.util.function.Consumer;
 
 /**
  * Brings actions and reducers together, and holds state of the app.
- * It allows to get current state, subscribe to state changes, and to update state by dispatching actions.
- * It is the single point of truth in your application.
+ * It allows current state retrieval, state change subscription, and state updates by dispatching actions.
+ * It *should* be the single point of truth in your application.
  *
  * @param <S> State type. Describes the state of your app. Should be immutable.
  */
@@ -14,7 +14,9 @@ public class ObStore<S> {
 
   private S currentState;
   private final ObReducer<S> reducer;
+
   private final List<Consumer<S>> subscribers = new ArrayList<>();
+  private final List<Consumer<S>> cycleSubs = new ArrayList<>();
 
   private   final ObActionHandler rootSink;
   private   final Map<Integer, ObActionHandler> sinkCache = new HashMap<>();
@@ -37,7 +39,9 @@ public class ObStore<S> {
   }
 
   private void notify(S currentState) {
-    try { subscribers.forEach(c -> c.accept(currentState)); }
+    cycleSubs.clear();
+    cycleSubs.addAll(subscribers);
+    try { cycleSubs.forEach(c -> c.accept(currentState)); }
     catch (Exception e) { errorHandler.accept(e); }
   }
 
@@ -49,14 +53,21 @@ public class ObStore<S> {
     } : action -> middlewares[index].handle(this, action, next(index + 1, middlewares)));
   }
 
-  public void dispatch(ObAction<?> action) {
-    rootSink.apply(action);
-  }
+  public void dispatch(ObAction<?> action) { rootSink.apply(action); }
 
   public S getState() { return this.currentState; }
 
   /**
    * Subscribe to store state changes.
+   *
+   * If this method gets called in the middle of a dispatch cycle, the target
+   * <code>consumer</code> will only receive state changes until the
+   * active dispatch cycle ends, and the next dispatch cycle starts.
+   *
+   * Similarly, when the un-subscribe callback reference returned by this method
+   * gets called in the middle of a dispatch cycle, the target <code>consumer</code>
+   * will continue to receive state changes until the active dispatch cycle ends, and
+   * the next dispatch cycle starts.
    *
    * @param consumer will be called on store's state change.
    * @return a handle to unsubscribe <code>consumer</code> from this store's state changes.
