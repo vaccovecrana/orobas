@@ -14,9 +14,7 @@ public class ObStore<S> {
 
   private S currentState;
   private final ObReducer<S> reducer;
-
-  private final List<Consumer<S>> subscribers = new ArrayList<>();
-  private final List<Consumer<S>> cycleSubs = new ArrayList<>();
+  private final Map<Consumer<S>, Consumer<S>> subscribers, cycleSubs;
 
   private   final ObActionHandler rootSink;
   private   final Map<Integer, ObActionHandler> sinkCache = new HashMap<>();
@@ -36,12 +34,23 @@ public class ObStore<S> {
     this.currentState = state;
     this.rootSink = next(0, middlewares);
     this.errorHandler = errorHandler;
+    this.subscribers = new IdentityHashMap<>();
+    this.cycleSubs = new IdentityHashMap<>();
   }
 
   private void notify(S currentState) {
     cycleSubs.clear();
-    cycleSubs.addAll(subscribers);
-    try { cycleSubs.forEach(c -> c.accept(currentState)); }
+    cycleSubs.putAll(subscribers);
+    try {
+      cycleSubs.values().forEach(c -> c.accept(currentState));
+      if (cycleSubs.size() != subscribers.size()) {
+        subscribers.values().forEach(c -> {
+          if (!cycleSubs.containsKey(c)) {
+            c.accept(currentState);
+          }
+        });
+      }
+    }
     catch (Exception e) { errorHandler.accept(e); }
   }
 
@@ -60,21 +69,12 @@ public class ObStore<S> {
   /**
    * Subscribe to store state changes.
    *
-   * If this method gets called in the middle of a dispatch cycle, the target
-   * <code>consumer</code> will only receive state changes until the
-   * active dispatch cycle ends, and the next dispatch cycle starts.
-   *
-   * Similarly, when the un-subscribe callback reference returned by this method
-   * gets called in the middle of a dispatch cycle, the target <code>consumer</code>
-   * will continue to receive state changes until the active dispatch cycle ends, and
-   * the next dispatch cycle starts.
-   *
-   * @param consumer will be called on store's state change.
-   * @return a handle to unsubscribe <code>consumer</code> from this store's state changes.
+   * @param cons will be called on store's state change.
+   * @return a handle to unsubscribe <code>cons</code> from this store's state changes.
    */
-  public Runnable subscribe(Consumer<S> consumer) {
-    this.subscribers.add(consumer);
-    return () -> subscribers.remove(consumer);
+  public Runnable subscribe(Consumer<S> cons) {
+    this.subscribers.put(cons, cons);
+    return () -> subscribers.remove(cons);
   }
 
 }
