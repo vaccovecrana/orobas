@@ -1,6 +1,8 @@
 package io.vacco.orobas;
 
-import java.util.*;
+import java.util.HashMap;
+import java.util.IdentityHashMap;
+import java.util.Map;
 import java.util.function.Consumer;
 
 /**
@@ -12,12 +14,12 @@ import java.util.function.Consumer;
  */
 public class ObStore<S> {
 
-  private S currentState;
+  private volatile S currentState;
   private final ObReducer<S> reducer;
   private final Map<Consumer<S>, Consumer<S>> subscribers, cycleSubs;
 
-  private   final ObActionHandler rootSink;
-  private   final Map<Integer, ObActionHandler> sinkCache = new HashMap<>();
+  private final ObActionHandler rootSink;
+  private final Map<Integer, ObActionHandler> sinkCache = new HashMap<>();
   protected final Consumer<Throwable> errorHandler;
 
   /**
@@ -27,9 +29,10 @@ public class ObStore<S> {
    * @param middlewares  middlewares to register in store
    */
   @SuppressWarnings("varargs")
-  @SafeVarargs public ObStore(ObReducer<S> reducer, S state,
-                              Consumer<Throwable> errorHandler,
-                              ObMiddleware<S> ... middlewares) {
+  @SafeVarargs
+  public ObStore(ObReducer<S> reducer, S state,
+                 Consumer<Throwable> errorHandler,
+                 ObMiddleware<S>... middlewares) {
     this.reducer = reducer;
     this.currentState = state;
     this.rootSink = next(0, middlewares);
@@ -39,32 +42,46 @@ public class ObStore<S> {
   }
 
   private void notify(S currentState) {
-    cycleSubs.clear();
-    cycleSubs.putAll(subscribers);
+    synchronized (subscribers) {
+      cycleSubs.clear();
+      cycleSubs.putAll(subscribers);
+    }
     try {
       cycleSubs.values().forEach(c -> c.accept(currentState));
-      if (cycleSubs.size() != subscribers.size()) {
-        subscribers.values().forEach(c -> {
-          if (!cycleSubs.containsKey(c)) {
-            c.accept(currentState);
-          }
-        });
+      synchronized (subscribers) {
+        if (cycleSubs.size() != subscribers.size()) {
+          subscribers.values().forEach(c -> {
+            if (!cycleSubs.containsKey(c)) {
+              c.accept(currentState);
+            }
+          });
+        }
       }
+    } catch (Exception e) {
+      errorHandler.accept(e);
     }
-    catch (Exception e) { errorHandler.accept(e); }
   }
 
   private ObActionHandler next(int index, ObMiddleware<S>[] middlewares) {
-    return sinkCache.computeIfAbsent(index, k -> index == middlewares.length ? action -> {
-      currentState = reducer.reduce(action, currentState);
-      notify(currentState);
-      return action;
-    } : action -> middlewares[index].handle(this, action, next(index + 1, middlewares)));
+    return sinkCache.computeIfAbsent(index, k -> {
+      if (index == middlewares.length) {
+        return action -> {
+          currentState = reducer.reduce(action, currentState);
+          notify(currentState);
+          return action;
+        };
+      }
+      return action -> middlewares[index].handle(this, action, next(index + 1, middlewares));
+    });
   }
 
-  public void dispatch(ObAction<?> action) { rootSink.apply(action); }
+  public void dispatch(ObAction<?> action) {
+    rootSink.apply(action);
+  }
 
-  public S getState() { return this.currentState; }
+  public S getState() {
+    return this.currentState;
+  }
 
   /**
    * Subscribe to store state changes.
@@ -73,8 +90,14 @@ public class ObStore<S> {
    * @return a handle to unsubscribe <code>cons</code> from this store's state changes.
    */
   public Runnable subscribe(Consumer<S> cons) {
-    this.subscribers.put(cons, cons);
-    return () -> subscribers.remove(cons);
+    synchronized (subscribers) {
+      this.subscribers.put(cons, cons);
+    }
+    return () -> {
+      synchronized (subscribers) {
+        subscribers.remove(cons);
+      }
+    };
   }
 
 }
