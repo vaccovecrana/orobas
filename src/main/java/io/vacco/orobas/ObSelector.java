@@ -4,11 +4,12 @@ import java.util.function.BiFunction;
 import java.util.function.Function;
 
 /**
- * Manages a slice of a global state. Multiple selectors can be combined
- * into a single reducer.
+ * Manages a slice of a root state. Each selector defines how to extract a
+ * sub-state, reduce it, and merge it back. Multiple selectors can be combined
+ * into a single root reducer via {@link #combineSelectors(ObSelector[])}.
  *
- * @param <R> the type of the root state.
- * @param <S> the type of this selector's state slice.
+ * @param <R> the root state type.
+ * @param <S> this selector's state slice type.
  */
 public class ObSelector<R, S> implements ObReducer<R> {
 
@@ -17,9 +18,9 @@ public class ObSelector<R, S> implements ObReducer<R> {
   private final ObReducer<S> reducer;
 
   /**
-   * @param mapper a function which selects the root state's target slice.
-   * @param reducer the reducer logic to operate on the target state slice.
-   * @param merger a function to merge back the slice into the global root state.
+   * @param mapper  extracts the relevant slice from the root state.
+   * @param reducer reduces actions against the extracted slice.
+   * @param merger  merges the reduced slice back into the root state.
    */
   public ObSelector(Function<R, S> mapper, ObReducer<S> reducer, BiFunction<R, S, R> merger) {
     this.mapper = mapper;
@@ -27,20 +28,22 @@ public class ObSelector<R, S> implements ObReducer<R> {
     this.merger = merger;
   }
 
-  @Override public R reduce(ObAction<?> action, R rootState) {
+  @Override
+  public R reduce(ObAction<?> action, R rootState) {
     return merger.apply(rootState, reducer.reduce(action, mapper.apply(rootState)));
   }
 
   /**
-   * Combines multiple selectors for a root state.
+   * Combines multiple selectors into a single root reducer. Each selector is
+   * applied sequentially in declaration order, allowing independent state
+   * slices to be managed by their own reducers.
    *
    * @param selectors the selectors to combine.
-   * @param <A> an action type to which all selectors align.
-   * @param <R> type of the root state.
-   * @return a reducer which sequentially applies the provided selectors onto the root state.
+   * @param <R>       the root state type.
+   * @return a reducer that applies each selector in order.
    */
   @SafeVarargs
-  public static <A extends Enum<?>, R> ObReducer<R> combineSelectors(ObSelector<R, ?>... selectors) {
+  public static <R> ObReducer<R> combineSelectors(ObSelector<R, ?>... selectors) {
     return ((action, currentState) -> {
       for (ObSelector<R, ?> sel : selectors) {
         currentState = sel.reduce(action, currentState);
@@ -48,4 +51,5 @@ public class ObSelector<R, S> implements ObReducer<R> {
       return currentState;
     });
   }
+
 }
